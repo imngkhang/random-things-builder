@@ -1,0 +1,113 @@
+name: Build Zalo for Linux ARM64 (No Wine)
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      zalo_version:
+        description: 'Zalo Version (leave empty for latest)'
+        required: false
+        default: ''
+        type: string
+      zalo_win_version:
+        description: 'Zalo Windows Version for the call engine (leave empty for latest)'
+        required: false
+        default: ''
+        type: string
+      zadark_version:
+        description: 'ZaDark Version/Tag/Commit (leave empty for latest)'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    # Sử dụng máy ảo Ubuntu chạy chip ARM64 thuần túy của GitHub
+    runs-on: ubuntu-24.04-arm64
+
+    steps:
+    - name: Checkout repository
+     run: |
+        git clone --recurse-submodules https://github.com/doandat943/zalo-for-linux.git
+        cd zalo-for-linux
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+        cache: 'npm'
+
+    - name: Setup Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: aarch64-unknown-linux-gnu
+        
+    - name: Cache Electron binaries
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/electron
+        key: ${{ runner.os }}-arm64-electron-${{ hashFiles('package-lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-arm64-electron-
+
+    - name: Cache build downloads (DMG, Windows installer, call engine)
+      uses: actions/cache@v3
+      with:
+        path: temp
+        key: ${{ runner.os }}-arm64-zalo-temp-${{ hashFiles('package-lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-arm64-zalo-temp-
+
+    - name: Cache Cargo registry and build artifacts
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          nativelibs/*/target
+        key: ${{ runner.os }}-arm64-cargo-${{ hashFiles('nativelibs/*/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-arm64-cargo-
+          
+    - name: Install Node.js dependencies
+      run: npm ci --prefer-offline --no-audit
+
+    - name: Install system build dependencies
+      # Đã gỡ bỏ toàn bộ gói i386/cross-compile x86. Chỉ cài thư viện build native trên ARM64.
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y liblzma-dev p7zip-full gcc g++ libc6-dev libx11-dev libxcb1-dev libxext-dev
+
+    - name: Setup and Build
+      id: build
+      env:
+        ZALO_VERSION: ${{ github.event.inputs.zalo_version }}
+        ZALO_WIN_VERSION: ${{ github.event.inputs.zalo_win_version }}
+        ZADARK_VERSION: ${{ github.event.inputs.zadark_version }}
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        ELECTRON_BUILDER_ARCH: arm64 
+      run: npm run main
+        
+    - name: Upload Original AppImage artifact
+      if: steps.build.outputs.build == 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ steps.build.outputs.original_appimage_name }}-arm64
+        path: ${{ steps.build.outputs.original_appimage_file }}
+        retention-days: 30
+        
+    - name: Upload ZaDark AppImage artifact
+      if: steps.build.outputs.build == 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ steps.build.outputs.zadark_appimage_name }}-arm64
+        path: ${{ steps.build.outputs.zadark_appimage_file }}
+        retention-days: 30
