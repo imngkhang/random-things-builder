@@ -30,7 +30,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          repository: doandat943/zalo-for-linux
+          repository: imngkhang/zalo-for-linux
+          ref: zalo-aa64-support 
           submodules: recursive
 
       - name: Setup Node.js
@@ -97,7 +98,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.build.outputs.original_appimage_name }}-arm64
-          path: ${{ steps.build.outputs.original_appimage_file }}
+          path: ${{ steps.build.outputs.original_appimage_file }}*
           retention-days: 30
 
       - name: Upload ZaDark AppImage artifact
@@ -105,5 +106,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.build.outputs.zadark_appimage_name }}-arm64
-          path: ${{ steps.build.outputs.zadark_appimage_file }}
+          path: ${{ steps.build.outputs.zadark_appimage_file }}*
           retention-days: 30
