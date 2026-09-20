@@ -42,10 +42,6 @@ jobs:
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
-          profile: minimal
-          targets: aarch64-unknown-linux-gnu
 
       - name: Cache Electron binaries
         uses: actions/cache@v4
@@ -77,7 +73,19 @@ jobs:
       - name: Install system build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y liblzma-dev p7zip-full gcc g++ libc6-dev libx11-dev libxcb1-dev libxext-dev clang libclang-dev llvm
+          sudo apt-get install -y \
+            build-essential \
+            liblzma-dev \
+            p7zip-full \
+            gcc \
+            g++ \
+            clang \
+            libclang-dev \
+            llvm \
+            libc6-dev \
+            libx11-dev \
+            libxcb1-dev \
+            libxext-dev
 
       - name: Install Node.js dependencies
         run: npm ci --prefer-offline --no-audit
@@ -90,7 +98,6 @@ jobs:
           ZADARK_VERSION: ${{ github.event.inputs.zadark_version }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-          LIBCLANG_PATH: /usr/lib/llvm-18/lib
           ELECTRON_BUILDER_ARCH: arm64
         run: npm run main
 
