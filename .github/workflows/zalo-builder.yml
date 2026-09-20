@@ -77,7 +77,7 @@ jobs:
       - name: Install system build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y liblzma-dev p7zip-full gcc g++ libc6-dev libx11-dev libxcb1-dev libxext-dev
+          sudo apt-get install -y liblzma-dev p7zip-full gcc g++ libc6-dev libx11-dev libxcb1-dev libxext-dev clang libclang-dev llvm
 
       - name: Install Node.js dependencies
         run: npm ci --prefer-offline --no-audit
@@ -90,6 +90,7 @@ jobs:
           ZADARK_VERSION: ${{ github.event.inputs.zadark_version }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          LIBCLANG_PATH: /usr/lib/llvm-18/lib
           ELECTRON_BUILDER_ARCH: arm64
         run: npm run main
 
