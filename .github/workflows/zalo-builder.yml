@@ -1,6 +1,11 @@
-name: Build Zalo for Linux ARM64 (No Wine)
+name: Build Zalo for Linux
 
 on:
+  schedule:
+    - cron: '0 0 * * *'
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       zalo_version:
@@ -24,95 +29,203 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04-arm
-
+    name: Build (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    outputs:
+      zalo_version: ${{ steps.build.outputs.zalo_version }}
+      build: ${{ steps.build.outputs.build }}
+      original_appimage_name: ${{ steps.build.outputs.original_appimage_name }}
+      original_appimage_file: ${{ steps.build.outputs.original_appimage_file }}
+      zadark_appimage_name: ${{ steps.build.outputs.zadark_appimage_name }}
+      zadark_appimage_file: ${{ steps.build.outputs.zadark_appimage_file }}
+      full_appimage_name: ${{ steps.build.outputs.full_appimage_name }}
+      full_appimage_file: ${{ steps.build.outputs.full_appimage_file }}
+      plainfull_appimage_name: ${{ steps.build.outputs.plainfull_appimage_name }}
+      plainfull_appimage_file: ${{ steps.build.outputs.plainfull_appimage_file }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-latest
+            sys_deps: >
+              sudo dpkg --add-architecture i386 &&
+              sudo apt update &&
+              sudo apt install -y build-essential liblzma-dev p7zip-full gcc-mingw-w64-i686 gcc gcc-multilib g++ clang libclang-dev llvm libc6-dev-i386 libx11-dev libxcb1-dev libx11-dev:i386 libxcb1-dev:i386 libxext-dev:i386 zsync
+          - arch: aarch64
+            runner: ubuntu-24.04-arm 
+            sys_deps: >
+              sudo apt update &&
+              sudo apt install -y build-essential liblzma-dev p7zip-full gcc g++ clang libclang-dev llvm libc6-dev libx11-dev libxcb1-dev libxext-dev
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          repository: imngkhang/zalo-for-linux
-          ref: zalo-aa64-support 
-          submodules: recursive
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        repository: anupamme/zalo-for-linux
+        ref: fix-repo-zalo-for-linux-streamproxy-cwe-119-heap-overflow
+        submodules: recursive
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: 'npm'
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+        cache: 'npm'
 
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+    - name: Setup Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+        
+    - name: Cache Electron binaries
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/electron
+        key: ${{ runner.os }}-${{ matrix.arch }}-electron-${{ hashFiles('package-lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-${{ matrix.arch }}-electron-
 
-      - name: Cache Electron binaries
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/electron
-          key: ${{ runner.os }}-arm64-electron-${{ hashFiles('package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-arm64-electron-
+    - name: Cache build downloads
+      uses: actions/cache@v3
+      with:
+        path: temp
+        key: ${{ runner.os }}-${{ matrix.arch }}-zalo-temp-${{ hashFiles('package-lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-${{ matrix.arch }}-zalo-temp-
 
-      - name: Cache build downloads (DMG, Windows installer, call engine)
-        uses: actions/cache@v4
-        with:
-          path: temp
-          key: ${{ runner.os }}-arm64-zalo-temp-${{ hashFiles('package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-arm64-zalo-temp-
+    - name: Cache Cargo registry and build artifacts
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          nativelibs/*/target
+        key: ${{ runner.os }}-${{ matrix.arch }}-cargo-${{ hashFiles('nativelibs/*/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-${{ matrix.arch }}-cargo-
+          
+    - name: Install Node.js dependencies
+      run: npm ci --prefer-offline --no-audit
 
-      - name: Cache Cargo registry and build artifacts
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            nativelibs/*/target
-          key: ${{ runner.os }}-arm64-cargo-${{ hashFiles('nativelibs/*/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-arm64-cargo-
+    - name: Install system build dependencies (${{ matrix.arch }})
+      run: ${{ matrix.sys_deps }}
 
-      - name: Install system build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            liblzma-dev \
-            p7zip-full \
-            gcc \
-            g++ \
-            clang \
-            libclang-dev \
-            llvm \
-            libc6-dev \
-            libx11-dev \
-            libxcb1-dev \
-            libxext-dev
+    - name: Setup and Build
+      id: build
+      env:
+        ZALO_VERSION: ${{ github.event.inputs.zalo_version }}
+        ZALO_WIN_VERSION: ${{ github.event.inputs.zalo_win_version }}
+        ZADARK_VERSION: ${{ github.event.inputs.zadark_version }}
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+      run: npm run main
+        
+    - name: Upload Original AppImage artifact
+      if: steps.build.outputs.build == 'true' && steps.build.outputs.original_appimage_file != ''
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ steps.build.outputs.original_appimage_name }}-${{ matrix.arch }}
+        path: ${{ steps.build.outputs.original_appimage_file }}*
+        retention-days: 30
+        
+    - name: Upload ZaDark AppImage artifact
+      if: steps.build.outputs.build == 'true' && steps.build.outputs.zadark_appimage_file != ''
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ steps.build.outputs.zadark_appimage_name }}-${{ matrix.arch }}
+        path: ${{ steps.build.outputs.zadark_appimage_file }}*
+        retention-days: 30
 
-      - name: Install Node.js dependencies
-        run: npm ci --prefer-offline --no-audit
+    - name: Upload Full AppImage artifact (wine bundled, ZaDark)
+      if: steps.build.outputs.build == 'true' && steps.build.outputs.full_appimage_file != ''
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ steps.build.outputs.full_appimage_name }}-${{ matrix.arch }}
+        path: ${{ steps.build.outputs.full_appimage_file }}*
+        retention-days: 30
 
-      - name: Setup and Build
-        id: build
-        env:
-          ZALO_VERSION: ${{ github.event.inputs.zalo_version }}
-          ZALO_WIN_VERSION: ${{ github.event.inputs.zalo_win_version }}
-          ZADARK_VERSION: ${{ github.event.inputs.zadark_version }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          ELECTRON_BUILDER_ARCH: arm64
-        run: npm run main
+    - name: Upload Full AppImage artifact (wine bundled, no ZaDark)
+      if: steps.build.outputs.build == 'true' && steps.build.outputs.plainfull_appimage_file != ''
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ steps.build.outputs.plainfull_appimage_name }}-${{ matrix.arch }}
+        path: ${{ steps.build.outputs.plainfull_appimage_file }}*
+        retention-days: 30
 
-      - name: Upload Original AppImage artifact
-        if: steps.build.outputs.build == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ steps.build.outputs.original_appimage_name }}-arm64
-          path: ${{ steps.build.outputs.original_appimage_file }}*
-          retention-days: 30
+  release:
+    name: Release the AppImages
+    needs: build
+    if: needs.build.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        repository: anupamme/zalo-for-linux
+        ref: fix-repo-zalo-for-linux-streamproxy-cwe-119-heap-overflow
+        
+    - name: Download all AppImage artifacts
+      uses: actions/download-artifact@v4
+      with:
+        pattern: Zalo*
+        path: dist
+        merge-multiple: true
 
-      - name: Upload ZaDark AppImage artifact
-        if: steps.build.outputs.build == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ steps.build.outputs.zadark_appimage_name }}-arm64
-          path: ${{ steps.build.outputs.zadark_appimage_file }}*
-          retention-days: 30
+    - name: Get current commit hash via Git
+      run: echo "COMMIT_HASH=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ needs.build.outputs.zalo_version }}
+        name: ${{ needs.build.outputs.zalo_version }}
+        body: |
+          ## 🚀 How to use
+
+          It is recommended to use [Gear Lever](https://github.com/mijorus/gearlever) to manage and integrate the AppImage.
+
+          Choose the appropriate AppImage for your system architecture below (x64 or aa64) and download it.
+          
+          ```bash
+          # Install with Gear Lever
+          flatpak run it.mijorus.gearlever --integrate <downloaded-file>
+          ```
+
+          > 🍷 **Full variants** (portable wine bundled inside — the call feature, voice/video/share screen, works right after the first launch with no download; larger files ~430MB):
+          > - `*-Full-x86_64.AppImage` (with ZaDark)
+          > - `*-PlainFull-x86_64.AppImage` (without ZaDark)
+
+          **NOTE: DO NOT download the files with `.AppImage.zsync`, they are only used for incremental updates and cannot run directly.**
+
+          ## 📋 System Requirements
+          - Linux x64 or aa64
+          - GLIBC 2.28 or later
+
+          ## 🐛 Issues & Support
+          Please report issues in the [GitHub Issues](https://github.com/${{ github.repository }}/issues) section.
+
+        files: dist/*.AppImage*
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Cleanup old release assets
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        RELEASE_TAG: ${{ needs.build.outputs.zalo_version }}
+        CURRENT_COMMIT: ${{ env.COMMIT_HASH }}
+      run: |
+        set -euo pipefail
+
+        echo "Cleaning up assets for release $RELEASE_TAG (keeping commit $CURRENT_COMMIT)"
+
+        asset_names=$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' || true)
+
+        if [ -z "$asset_names" ]; then
+          echo "No assets found for release $RELEASE_TAG"
+          exit 0
+        fi
+
+        for name in $asset_names; do
+          if [[ "$name" == Zalo-*.AppImage* ]] && [[ "$name" != *"$CURRENT_COMMIT"* ]]; then
+            echo "Removing old asset: $name"
+            gh release delete-asset "$RELEASE_TAG" "$name" --yes
+          fi
+        done
