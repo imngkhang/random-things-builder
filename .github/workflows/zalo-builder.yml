@@ -56,8 +56,8 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
-        repository: anupamme/zalo-for-linux
-        ref: fix-repo-zalo-for-linux-streamproxy-cwe-119-heap-overflow
+        repository: nct88/zalo-for-linux
+        ref: fix/91-screenbridge-call-end
         submodules: recursive
 
     - name: Setup Node.js
@@ -154,8 +154,8 @@ jobs:
     steps:
     - uses: actions/checkout@v4
       with:
-        repository: anupamme/zalo-for-linux
-        ref: fix-repo-zalo-for-linux-streamproxy-cwe-119-heap-overflow
+        repository: nct88/zalo-for-linux
+        ref: fix/91-screenbridge-call-end
         
     - name: Download all AppImage artifacts
       uses: actions/download-artifact@v4
